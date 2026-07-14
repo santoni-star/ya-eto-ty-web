@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Я — Це Ти</title>
+  <link rel="stylesheet" href="css/terminal.css">
+</head>
+<body>
+  <div id="terminal">
+    <div id="output"></div>
+    <div id="input-line">
+      <span id="prompt"></span>
+      <input type="text" id="input" autofocus spellcheck="false" autocomplete="off">
+    </div>
+  </div>
+
+  <div id="pause-overlay" style="display:none">
+    <div id="pause-menu">
+      <h2>⏸ ПАУЗА</h2>
+      <button data-action="continue">▶ Продовжити</button>
+      <button data-action="save">💾 Зберегти</button>
+      <button data-action="quit">✕ Вийти</button>
+    </div>
+  </div>
+  <script>document.getElementById('pause-overlay').style.display='none'</script>
+
+  <script src="js/terminal.js"></script>
+  <script src="js/filesystem.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/endings.js"></script>
+  <script src="js/shell.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

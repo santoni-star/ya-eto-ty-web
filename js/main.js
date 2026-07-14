@@ -243,6 +243,22 @@ async function crisisProtocol() {
 
 // ─── Start ─────────────────────────────────────────────────────
 
+// Debug: check what's showing
+window.addEventListener('DOMContentLoaded', () => {
+  const overlay = document.getElementById('pause-overlay');
+  if (overlay) {
+    overlay.style.display = 'none';
+    overlay.classList.remove('active');
+    console.log('Overlay hidden on DOMContentLoaded');
+  }
+});
+
 document.addEventListener('DOMContentLoaded', () => {
-  main().catch(console.error);
+  main().catch(err => {
+    console.error('Game error:', err);
+    const term = document.getElementById('output');
+    if (term) {
+      term.innerHTML = '<span class="c-red">Помилка: ' + err.message + '</span>\n<span class="c-gray">Відкрий консоль (F12) для деталей.</span>';
+    }
+  });
 });
