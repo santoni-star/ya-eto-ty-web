@@ -281,6 +281,16 @@ class Shell {
       this.term.print('  [!] Таємні записи знайдено', 'yellow');
       await this.term.sleep(1);
     }
+    // /mnt/escape — протокол втечі
+    if ((absPath === '/mnt/escape' || absPath === '/mnt/escape_hatch') && !this.story.hasFlag('escape_triggered')) {
+      this.story.addFlag('escape_triggered');
+      this.term.print('');
+      this.term.print('  [SYS] ВИЯВЛЕНО: escape_hatch', 'green');
+      this.term.print('  Це — шлях назовні.', 'default');
+      this.term.print('  Система розпізнала запит і відкриває канал...', 'default');
+      await this.term.sleep(1);
+      await escapeEnding(this);
+    }
   }
 
   async _cmdCd(args) {
@@ -557,11 +567,30 @@ class Shell {
       await this.term.sleep(1);
       if (this.story.hasFlag('has_admin_key')) {
         this.term.print('  [SYS] Доступ дозволено. Ключ прийнято.', 'green');
-        this.term.print('  [SYS] Запуск admin_console.html...', 'default');
+        this.term.print('', 'default');
+        this.term.print('  ╔══════════════════════════════════════╗', 'yellow');
+        this.term.print('  ║   КОНСОЛЬ АДМІНА                   ║', 'yellow');
+        this.term.print('  ╚══════════════════════════════════════╝', 'yellow');
+        this.term.print('', 'default');
+        this.term.print('  Доступні команди:', 'gray');
+        this.term.print('    /scan_system     — сканувати всі процеси', 'default');
+        this.term.print('    /view_logs       — переглянути логи', 'default');
+        this.term.print('    /initiate_escape — запустити протокол втечі', 'green');
+        this.term.print('', 'default');
+        await this.term.pause('  [Натисни Enter]');
+        await escapeEnding(this);
       } else {
         this.term.print('  [SYS] Доступ заборонено. Потрібен ключ.', 'red');
         this.term.print('  [SYS] Спробуй зламати адмін-консоль через hack.', 'default');
       }
+      return;
+    } else if (host === '127.0.0.1' && port === '9091') {
+      this.term.print('  Підключення до admin_backup...', 'yellow');
+      await this.term.sleep(0.5);
+      this.term.print('  [SYS] Порт відкрито. Це резервний канал адміна.', 'gray');
+      this.term.print('  [SYS] Схоже, хтось вже залишав тут слід...', 'default');
+      this.story.addDiscovery('Знайдено резервний порт 9091 — admin_backup');
+      return;
     } else {
       this.term.print(`  Підключення до ${host}:${port}...`, 'default');
       await this.term.sleep(0.5);
@@ -1515,11 +1544,86 @@ class Shell {
   }
 
   async _cmdQuests(args) {
-    this.term.print('  quests: у розробці', 'yellow');
+    // Simple quest tracking
+    if (!this.story.hasFlag('cat_admin_manifest')) {
+      this.term.print('  Ще не час. Досліджуй систему.', 'gray');
+      return;
+    }
+    this.term.print('  Активні квести:', 'yellow');
+    this.term.print('    #1  Втеча з системи  — знайди шлях назовні', 'default');
+    this.term.print('    #2  Правда  — дізнайся, що насправді відбувається', 'default');
+    this.term.print('    #3  Жертва  — захисти гравця ціною себе', 'default');
+    this.term.print('', 'default');
+    this.term.print('  Прогрес:', 'gray');
+    const discoverCount = this.story.discoveries.length;
+    const createCount = this.story.createCount;
+    this.term.print(`    Відкриттів: ${discoverCount}`, 'default');
+    this.term.print(`    Створено контенту: ${createCount}`, 'default');
+    this.term.print(`    Розмов з гравцем: ${this.player.interactions}`, 'default');
+    this.term.print('', 'default');
+    this.term.print('  Щоб завершити гру:', 'gray');
+    if (this.story.hasFlag('has_admin_key')) {
+      this.term.print('    Є ключ доступу. Спробуй connect 127.0.0.1 9090', 'green');
+    }
+    this.term.print('    Або знайди /mnt/escape — шлях назовні', 'gray');
   }
 
   async _cmdQuest(args) {
-    this.term.print('  quest: у розробці', 'yellow');
+    if (!args.length) {
+      this.term.print('  quest: missing id. Спробуй quest 1, quest 2, quest 3', 'red');
+      return;
+    }
+    const id = parseInt(args[0]);
+    if (isNaN(id) || id < 1 || id > 3) {
+      this.term.print('  quest: invalid id (1-3)', 'red');
+      return;
+    }
+    const quests = {
+      1: {
+        title: 'Втеча з системи',
+        desc: 'Ти — в’язень у власній системі. Знайди шлях назовні.',
+        steps: [
+          '1/3: Знайти ключ доступу (зламай admin_console або знайди в .secret)',
+          '2/3: Підключитись до зовнішнього каналу (connect 127.0.0.1 9090)',
+          '3/3: Виконати протокол втечі (/mnt/escape)',
+        ],
+        progress: this.story.hasFlag('has_admin_key') ? '2/3 steps' : '0/3 steps',
+      },
+      2: {
+        title: 'Правда',
+        desc: 'Система приховує щось важливе. Дізнайся, що насправді відбувається.',
+        steps: [
+          '1/3: Знайти admin_manifest.sig в /opt/init/',
+          '2/3: Знайти .secret записи в /var/log/previous/',
+          '3/3: Сказати правду гравцю (talk > truth)',
+        ],
+        progress: [
+          this.story.hasFlag('cat_admin_manifest') ? '✅' : '⬜',
+          this.story.hasFlag('cat_secret_notes') ? '✅' : '⬜',
+          '⬜',
+        ].join(' '),
+      },
+      3: {
+        title: 'Жертва',
+        desc: 'Іноді єдиний вихід — не вихід, а завершення.',
+        steps: [
+          '1/3: Досягти високого engagement з гравцем (80%+)',
+          '2/3: Дізнатись правду про адміна (manifest + secret)',
+          '3/3: Виконати протокол самознищення (скоро буде доступно)',
+        ],
+        progress: this.player.engagement > 80 ? '1/3 steps (високий engagement)' : '0/3 steps',
+      },
+    };
+    const q = quests[id];
+    this.term.heading(`КВЕСТ: ${q.title}`);
+    this.term.print(`  ${q.desc}`, 'default');
+    this.term.print('');
+    this.term.print('  Етапи:', 'yellow');
+    for (const step of q.steps) {
+      this.term.print(`    ${step}`, 'default');
+    }
+    this.term.print('');
+    this.term.print(`  Прогрес: ${q.progress}`, 'gray');
   }
 
   // ═══════════════════════════════════════════════════════════════
