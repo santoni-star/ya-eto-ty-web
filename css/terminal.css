@@ -1,0 +1,161 @@
+/* Я — Це Ти — Terminal CSS */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  background: #0a0a0a;
+  color: #c0c0c0;
+  font-family: 'Courier New', 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 15px;
+  line-height: 1.45;
+  overflow: hidden;
+}
+
+#terminal {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 8px 12px;
+}
+
+#output {
+  flex: 1;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  padding: 4px 0;
+  scroll-behavior: smooth;
+}
+
+#output::-webkit-scrollbar { width: 4px; }
+#output::-webkit-scrollbar-track { background: #111; }
+#output::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+
+#input-line {
+  display: flex;
+  align-items: center;
+  padding: 6px 0;
+  border-top: 1px solid #1a1a1a;
+  flex-shrink: 0;
+}
+
+#prompt {
+  color: #d4a017;
+  white-space: nowrap;
+  margin-right: 2px;
+}
+
+#input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #c0c0c0;
+  font-family: inherit;
+  font-size: inherit;
+  outline: none;
+  caret-color: #d4a017;
+}
+
+/* ANSI colors via CSS classes */
+.c-default { color: #c0c0c0; }
+.c-green  { color: #5f5; }
+.c-red    { color: #f55; }
+.c-yellow { color: #d4a017; }
+.c-cyan   { color: #5ff; }
+.c-blue   { color: #55f; }
+.c-magenta{ color: #f5f; }
+.c-gray   { color: #666; }
+.c-white  { color: #eee; }
+.c-bold   { font-weight: bold; }
+
+/* Status bar */
+.status-bar {
+  color: #666;
+  font-size: 13px;
+  padding: 4px 0;
+  border-bottom: 1px solid #1a1a1a;
+  margin-bottom: 4px;
+}
+.status-bar .bar {
+  display: inline-block;
+  font-family: inherit;
+}
+.status-bar .green { color: #5f5; }
+.status-bar .yellow { color: #d4a017; }
+.status-bar .red { color: #f55; }
+
+/* Headings */
+.heading {
+  text-align: center;
+  color: #d4a017;
+  padding: 8px 0;
+}
+.heading hr {
+  border: none;
+  border-top: 1px solid #333;
+}
+
+/* System message */
+.sys-msg { color: #666; font-style: italic; }
+.narrate { color: #c0c0c0; }
+.error-msg { color: #f55; }
+.roast-msg { color: #d4a017; }
+.admin-msg { color: #f55; font-weight: bold; }
+
+/* Hack minigame grid */
+.hack-grid { font-family: inherit; line-height: 1.6; }
+.hack-grid td { padding: 2px 6px; text-align: center; min-width: 28px; }
+.hack-grid .selected { background: #333; color: #5f5; }
+.hack-grid .cursor { background: #555; }
+
+/* Dialogue wheel */
+.dialog-option {
+  cursor: pointer;
+  color: #5ff;
+  padding: 2px 0;
+}
+.dialog-option:hover { color: #fff; background: #1a1a1a; }
+.dialog-option.selected { color: #d4a017; }
+
+/* Separator */
+.sep { color: #333; text-align: center; }
+
+/* Pause menu overlay */
+#pause-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.85);
+  z-index: 100;
+  justify-content: center;
+  align-items: center;
+}
+#pause-overlay.active { display: flex; }
+#pause-menu {
+  background: #111;
+  border: 1px solid #333;
+  padding: 24px;
+  text-align: center;
+}
+#pause-menu h2 { color: #d4a017; margin-bottom: 16px; }
+#pause-menu button {
+  display: block;
+  width: 200px;
+  margin: 8px auto;
+  padding: 8px 16px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #c0c0c0;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+#pause-menu button:hover { background: #222; border-color: #d4a017; }
+
+/* Responsive */
+@media (max-width: 600px) {
+  #terminal { padding: 4px 6px; font-size: 13px; }
+  .hack-grid td { min-width: 22px; padding: 1px 4px; }
+}
