@@ -1063,7 +1063,7 @@ class Shell {
     const cwd = this.cwd === '/' ? '/' :
       this.cwd.replace(/^\/root/, '~').replace(/^\/home\/neural/, '~');
     const timeStr = this.timer.formatTime();
-    return `\x1b[93m${user}\x1b[0m@\x1b[92m${host}\x1b[0m:\x1b[94m${cwd}\x1b[0m \x1b[90m${timeStr}\x1b[0m$ `;
+    return `${user}@${host}:${cwd} ${timeStr}$ `;
   }
 
   // ─── Command Dispatch ────────────────────────────────────────
@@ -1782,7 +1782,9 @@ class Shell {
       const sColor = a.suspicion > 60 ? 'red' : a.suspicion > 30 ? 'yellow' : 'green';
       this.term.print(`  #${a.id} ${a.name}`, 'yellow');
       this.term.print(`      Прогрес: [${pBar}] ${a.progress}%`, 'default');
-      this.term.print(`      Підозра: [<span class="${sColor}">${sBar}</span>] ${a.suspicion}%`);
+      this.term.write('      Підозра: [', 'default');
+      this.term.write(sBar, sColor);
+      this.term.writeln(`] ${a.suspicion}%`, 'default');
       this.term.print(`      CPU: ${a.cpuPerTick}/тік  CTX: +${a.ctxPerTick}/тік`, 'gray');
     }
     const tc = this._agents.reduce((s, a) => s + a.cpuPerTick, 0);
@@ -1858,7 +1860,11 @@ class Shell {
       const letter = String.fromCharCode(65 + i);
       const cpuOk = this.res.cpu >= cpu;
       const ramOk = this.res.ram >= ram;
-      this.term.print(`  ${letter}) ${label.padStart(10)}  ${cpuOk ? cpu : '<span class="red">' + cpu + '</span>'}%  ${ramOk ? ram : '<span class="red">' + ram + '</span>'}%  ${desc}`, 'default');
+      this.term.write(`  ${letter}) ${label.padStart(10)}  `, 'default');
+      this.term.write(String(cpu), cpuOk ? 'default' : 'red');
+      this.term.write('%  ', 'default');
+      this.term.write(String(ram), ramOk ? 'default' : 'red');
+      this.term.writeln(`%  ${desc}`, 'default');
     }
     this.term.print('');
     this.term.print('  Або введи create <тип> для швидкого створення.', 'gray');
