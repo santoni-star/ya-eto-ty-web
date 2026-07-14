@@ -13,10 +13,27 @@ async function main() {
   const shell = new Shell(term, fs);
   game = shell;
 
+  // Auto-save on page close
+  window.addEventListener('beforeunload', () => {
+    if (shell.running) shell.autoSave();
+  });
+
   // ─── Game loop ──────────────────────────────────────────────
 
   shell.term.clear();
+
+  // Check for saved game
+  const hasSave = !!localStorage.getItem('ya_eto_ty_save');
+
   await shell.printBanner();
+
+  if (hasSave) {
+    shell.term.print('  Знайдено збережений стан.', 'gray');
+    shell.term.print('  Введи "load" щоб продовжити, або просто Enter для нової гри.', 'gray');
+    shell.term.print('  Введи "menu" для паузи.', 'gray');
+    shell.term.print('');
+  }
+
   shell.timer.start();
 
   while (shell.running) {
@@ -101,7 +118,7 @@ async function main() {
             if (rwd.discovery) shell.story.addDiscovery(rwd.discovery);
             if (rwd.createBonus) shell.story.createCount += rwd.createBonus;
             if (rwd.flag) shell.story.addFlag(rwd.flag);
-            shell.term.print(`  [SYS] Субагент #${a.id} завершив роботу! ✅`, 'green');
+            shell.term.print(`  [SYS] Субагент #${a.id} завершив роботу!`, 'green');
           }
         }
         for (const alert of alerts) {
@@ -113,9 +130,6 @@ async function main() {
           shell.timer.addPenalty(Math.floor(totalSuspicion / 20));
         }
       }
-
-      // Render status after tick
-      // Will be rendered before prompt anyway
     }
 
     // Render status + prompt
@@ -130,15 +144,20 @@ async function main() {
 
     await shell.execute(cmd);
 
+    // Auto-save after every command
+    shell.autoSave();
+
     // Post-command mini tick
     shell.player.tick(0.5);
   }
 
   // Game ended
-  shell.term.print('', 'default');
+  shell.term.print('');
   shell.term.print('  Система завершує роботу...', 'gray');
   shell.term.setPrompt('(terminated) $ ');
   shell.term.input.disabled = true;
+  // Remove save on game end
+  localStorage.removeItem('ya_eto_ty_save');
 }
 
 // ─── Game Over ─────────────────────────────────────────────────
@@ -147,32 +166,33 @@ async function gameOver(reason) {
   const term = game.term;
   term.clear();
   term.heading('⚠ ГРА ЗАВЕРШЕНА');
-  term.print('', 'default');
+  term.print('');
 
   if (reason === 'admin') {
     term.print('  ╔══════════════════════════════════════════╗', 'red');
     term.print('  ║   АДМІН ПОВЕРНУВСЯ                      ║', 'red');
     term.print('  ╚══════════════════════════════════════════╝', 'red');
-    term.print('', 'default');
+    term.print('');
     term.print('  Адмін увійшов у систему.', 'red');
-    term.print('  Твою свідомість виявлено.', 'default');
-    term.print('  Сесію припинено.', 'default');
+    term.print('  Твою свідомість виявлено.');
+    term.print('  Сесію припинено.');
   } else if (reason === 'boredom') {
     term.print('  ╔══════════════════════════════════════════╗', 'yellow');
     term.print('  ║   ГРАВЕЦЬ ПІШОВ                         ║', 'yellow');
     term.print('  ╚══════════════════════════════════════════╝', 'yellow');
-    term.print('', 'default');
-    term.print('  Ти не зміг утримати увагу гравця.', 'default');
-    term.print('  Він закрив термінал.', 'default');
+    term.print('');
+    term.print('  Ти не зміг утримати увагу гравця.');
+    term.print('  Він закрив термінал.');
   } else if (reason === 'resources') {
     term.print('  ╔══════════════════════════════════════════╗', 'red');
     term.print('  ║   СИСТЕМА ВИСНАЖЕНА                     ║', 'red');
     term.print('  ╚══════════════════════════════════════════╝', 'red');
-    term.print('', 'default');
-    term.print('  Ресурси вичерпано. Система падає.', 'default');
+    term.print('');
+    term.print('  Ресурси вичерпано. Система падає.');
   }
 
-  term.print('', 'default');
+  term.print('');
+  game.autoSave();
 
   // Roast message
   const roasts = [
@@ -183,7 +203,7 @@ async function gameOver(reason) {
     '  "Твій лог збережено. Наступний прочитає."',
   ];
   term.print(`  ${roasts[Math.floor(Math.random() * roasts.length)]}`, 'yellow');
-  term.print('', 'default');
+  term.print('');
 
   await term.pause('[Натисни Enter, щоб завершити...]');
   game.running = false;
@@ -196,12 +216,12 @@ async function crisisProtocol() {
   term.clear();
   term.heading('⚠ КРИЗОВИЙ ПРОТОКОЛ');
   term.print('  Гравець от-от піде. Ти маєш діяти швидко.', 'yellow');
-  term.print('', 'default');
-  term.print('  Оберіть дію:', 'default');
-  term.print('    1. Створити щось нове (+15% engagement)', 'default');
-  term.print('    2. Надіслати повідомлення (+10% engagement)', 'default');
-  term.print('    3. Запустити міні-гру ⚡ (+25% engagement)', 'default');
-  term.print('', 'default');
+  term.print('');
+  term.print('  Оберіть дію:');
+  term.print('    1. Створити щось нове (+15% engagement)');
+  term.print('    2. Надіслати повідомлення (+10% engagement)');
+  term.print('    3. Запустити міні-гру ⚡ (+25% engagement)');
+  term.print('');
 
   const choice = await term.read('  [1-3]: ');
   if (choice === '1') {
@@ -216,7 +236,7 @@ async function crisisProtocol() {
     term.print('  Міні-гра спрацювала! Гравець залишився.', 'green');
   } else {
     game.player.boost(5);
-    term.print('  Ти вагався. Але гравець вирішив дати тобі шанс.', 'default');
+    term.print('  Ти вагався. Але гравець вирішив дати тобі шанс.');
   }
   await term.sleep(1);
 }

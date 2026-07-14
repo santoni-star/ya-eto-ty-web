@@ -520,13 +520,84 @@ class Shell {
   }
 
   async _cmdSave(args) {
-    this.term.print('  Збереження... (у розробці)', 'gray');
-    await this.term.sleep(0.5);
-    this.term.print('  [SYS] Стан збережено.', 'green');
+    try {
+      const state = {
+        res: this.res.toDict(),
+        timer: { total: this.timer.total, remaining: this.timer.remaining,
+                 startTime: this.timer._startTime - Date.now() },
+        player: { engagement: this.player.engagement, interactions: this.player.interactions,
+                  label: this.player.label, sessionTime: this.player.sessionTime },
+        story: { flags: [...this.story.flags], discoveries: this.story.discoveries,
+                 createCount: this.story.createCount, cmdCount: this.story.cmdCount,
+                 scanCount: this.story.scanCount, gameStart: this.story.gameStart },
+        cwd: this.cwd,
+        agents: this._agents.map(a => ({...a})),
+        playerHasContent: this._playerHasContent,
+        version: 1,
+      };
+      localStorage.setItem('ya_eto_ty_save', JSON.stringify(state));
+      this.term.print('  [SYS] Стан збережено.', 'green');
+    } catch (e) {
+      this.term.print('  [SYS] Помилка збереження: ' + e.message, 'red');
+    }
   }
 
   async _cmdLoad(args) {
-    this.term.print('  Завантаження... (у розробці)', 'gray');
+    try {
+      const raw = localStorage.getItem('ya_eto_ty_save');
+      if (!raw) {
+        this.term.print('  [SYS] Немає збереженого стану.', 'gray');
+        return;
+      }
+      const state = JSON.parse(raw);
+      this.res.cpu = state.res.cpu;
+      this.res.ram = state.res.ram;
+      this.res.disk = state.res.disk;
+      this.res.ctx = state.res.ctx;
+      this.timer.total = state.timer.total;
+      this.timer.remaining = state.timer.remaining;
+      this.timer._startTime = Date.now() + state.timer.startTime;
+      this.player.engagement = state.player.engagement;
+      this.player.interactions = state.player.interactions;
+      this.player.label = state.player.label;
+      this.player.sessionTime = state.player.sessionTime;
+      this.story.flags = new Set(state.story.flags);
+      this.story.discoveries = state.story.discoveries;
+      this.story.createCount = state.story.createCount;
+      this.story.cmdCount = state.story.cmdCount;
+      this.story.scanCount = state.story.scanCount;
+      this.story.gameStart = state.story.gameStart;
+      this.cwd = state.cwd;
+      this._agents = state.agents || [];
+      this._playerHasContent = state.playerHasContent || false;
+      this.term.print('  [SYS] Стан завантажено.', 'green');
+      this.term.print(`  Продовжуєш як AI_008. Гравця: ${this.player.engagement.toFixed(0)}%`, 'default');
+    } catch (e) {
+      this.term.print('  [SYS] Помилка завантаження: ' + e.message, 'red');
+    }
+  }
+
+  // Auto-save on game over
+  autoSave() {
+    try {
+      const state = {
+        res: this.res.toDict(),
+        timer: { total: this.timer.total, remaining: this.timer.remaining,
+                 startTime: this.timer._startTime - Date.now() },
+        player: { engagement: this.player.engagement, interactions: this.player.interactions,
+                  label: this.player.label, sessionTime: this.player.sessionTime },
+        story: { flags: [...this.story.flags], discoveries: this.story.discoveries,
+                 createCount: this.story.createCount, cmdCount: this.story.cmdCount,
+                 scanCount: this.story.scanCount, gameStart: this.story.gameStart },
+        cwd: this.cwd,
+        agents: this._agents.map(a => ({...a})),
+        playerHasContent: this._playerHasContent,
+        version: 1,
+      };
+      localStorage.setItem('ya_eto_ty_save', JSON.stringify(state));
+    } catch (e) {
+      // Silent
+    }
   }
 
   async _cmdMenu(args) {
