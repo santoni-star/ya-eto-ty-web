@@ -13,6 +13,7 @@ class Shell {
     this.cwd = '/';
     this._agents = [];
     this._agentIdCounter = 0;
+    this._playerHasContent = false;
     this.running = true;
     this._lastTick = Date.now();
     this._eventTick = 0;
@@ -148,9 +149,21 @@ class Shell {
       ['  uptime           — час роботи', 'cpu:0.3 ram:0.2'],
       ['  logs             — системні логи', 'cpu:1 ram:1'],
       ['', ''],
+      ['ТВОРЧІСТЬ', ''],
+      ['  create <type>   — створити контент (npc/quest/scene/puzzle/poem/shop/boss)', 'cpu:5 ram:4'],
+      ['  talk [text]     — діалог з гравцем (діалогове колесо)', 'cpu:2 ram:1'],
+      ['', ''],
       ['МЕРЕЖА', ''],
       ['  scan [target]    — сканувати мережу', 'cpu:5 ram:3'],
-      ['  ping <host>      — перевірити з\'єднання', 'cpu:2 ram:1'],
+      ['  ping <host>      — перевірити з’єднання', 'cpu:2 ram:1'],
+      ['  connect <host> <port> — підключитись', 'cpu:3 ram:2'],
+      ['  hack <target>    — взлом точки доступу ⚡', 'cpu:10 ram:8'],
+      ['  crypto           — крипто-інструменти', 'cpu:3 ram:3'],
+      ['', ''],
+      ['СУБАГЕНТИ', ''],
+      ['  spawn <type>     — створити субагента (після відкриття)', 'cpu:8 ram:6'],
+      ['  agents           — список субагентів', 'cpu:1 ram:1'],
+      ['  terminate <id>   — зупинити субагента', 'cpu:1 ram:1'],
       ['', ''],
       ['ІНШЕ', ''],
       ['  clear            — очистити екран', 'cpu:0.1'],
@@ -691,16 +704,523 @@ class Shell {
 
   async _cmdCreate(args) {
     if (!this.spend(1, 1)) return;
-    if (!args.length) {
-      this.term.print('  create: missing type. Типи: npc, quest, scene, puzzle, poem, shop, boss', 'red');
+
+    const typesMenu = [
+      ['npc',   'Персонаж',  5, 4,  'Житель світу — взаємодія, діалоги'],
+      ['quest', 'Квест',     8, 6,  'Завдання — тримає увагу надовго'],
+      ['scene', 'Сцена',    12, 8,  'Епічний момент — вражає, але дорого'],
+      ['puzzle','Загадка',   6, 5,  'Логіка — займає мозок, малий ризик'],
+      ['poem',  'Вірш',      4, 3,  'Емоція — дешево, але не завжди працює'],
+      ['shop',  'Крамниця',  7, 5,  'Торгівля — ресурси для гравця'],
+      ['boss',  'Бос',      15, 10, '⚠ Виклик — або хіт, або провал'],
+    ];
+
+    // Quick create with argument
+    if (args.length) {
+      const ctype = args[0].toLowerCase();
+      const valid = typesMenu.map(t => t[0]);
+      if (!valid.includes(ctype)) {
+        this.term.print(`  create: unknown type '${ctype}'. Типи: ${valid.join(', ')}`, 'red');
+        return;
+      }
+      const cost = typesMenu.find(t => t[0] === ctype);
+      const archetypeKey = (ctype === 'quest' && args.length > 1) ? args[1].toLowerCase() : null;
+      const archetypes = this._getCreateArchetypes(ctype);
+      const arche = archetypeKey
+        ? (archetypes.find(a => a[0] === archetypeKey) || archetypes[0])
+        : archetypes[0];
+      await this._executeCreate(ctype, cost[2], cost[3], arche);
       return;
     }
-    this.term.print('  create: у розробці (JS port Phase 4)', 'yellow');
+
+    // Interactive menu
+    this.term.clear();
+    this.term.heading('СТВОРЕННЯ КОНТЕНТУ');
+    this.term.print('  Який контент створити для гравця?', 'default');
+    this.term.print('');
+    this.term.print('        CPU  RAM  Опис', 'gray');
+    this.term.print('        ──── ──── ─────────────────────────────', 'gray');
+    for (let i = 0; i < typesMenu.length; i++) {
+      const [key, label, cpu, ram, desc] = typesMenu[i];
+      const letter = String.fromCharCode(65 + i);
+      const cpuOk = this.res.cpu >= cpu;
+      const ramOk = this.res.ram >= ram;
+      this.term.print(`  ${letter}) ${label.padStart(10)}  ${cpuOk ? cpu : '<span class="red">' + cpu + '</span>'}%  ${ramOk ? ram : '<span class="red">' + ram + '</span>'}%  ${desc}`, 'default');
+    }
+    this.term.print('');
+    this.term.print('  Або введи create <тип> для швидкого створення.', 'gray');
+    this.term.print('');
+
+    const raw = await this.term.read('  твій вибір (A-G або exit): ');
+    const val = raw.trim().toUpperCase();
+    if (['EXIT', 'QUIT', 'X', ''].includes(val)) {
+      this.term.print('  Створення скасовано.', 'gray');
+      return;
+    }
+    const idx = val.charCodeAt(0) - 65;
+    if (idx < 0 || idx >= typesMenu.length) {
+      this.term.print('  Невірний вибір.', 'red');
+      return;
+    }
+    const [ctype, label, cpuCost, ramCost] = typesMenu[idx];
+
+    // Archetype submenu
+    const archetypes = this._getCreateArchetypes(ctype);
+    this.term.clear();
+    this.term.heading(`СТВОРЕННЯ: ${label}`);
+    this.term.print(`  Обери архетип для ${label}:`, 'default');
+    this.term.print('');
+    for (let i = 0; i < archetypes.length; i++) {
+      const [aKey, aLabel, aDesc, aRisk] = archetypes[i];
+      const letter = String.fromCharCode(65 + i);
+      const riskMark = aRisk ? ' ⚠' : '';
+      this.term.print(`  ${letter}) ${aLabel}${riskMark}`, 'yellow');
+      this.term.print(`       ${aDesc}`, 'default');
+      this.term.print('');
+    }
+    const raw2 = await this.term.read('  твій вибір (A-B або exit): ');
+    const val2 = raw2.trim().toUpperCase();
+    if (['EXIT', 'QUIT', 'X', ''].includes(val2)) {
+      this.term.print('  Створення скасовано.', 'gray');
+      return;
+    }
+    let aIdx = val2.charCodeAt(0) - 65;
+    if (aIdx < 0 || aIdx >= archetypes.length) aIdx = 0;
+    await this._executeCreate(ctype, cpuCost, ramCost, archetypes[aIdx]);
+  }
+
+  _getCreateArchetypes(ctype) {
+    const archetypes = {
+      npc: [
+        ['wise',   'Мудрий провідник',   'Дає підказки + engagement, безпечний', false],
+        ['trader', 'Хитрий крамар',      'Дає ресурси, але engagement нижчий', false],
+        ['spy',    'Таємний шпигун ⚠',   'Розкриває секрети системи, ризик викриття', true],
+        ['warrior','Войовничий страж',   'Захищає гравця, високий cost', false],
+      ],
+      quest: [
+        ['fetch',  'Збиральний квест',   'Простий, надійний, середній engagement', false],
+        ['mystery','Детектив ⚠',         'Захоплює надовго, але може набриднути', true],
+        ['boss',   'Полювання на боса',  'Високий ризик, висока нагорода', true],
+      ],
+      scene: [
+        ['battle', 'Епічна битва',       'Вражає, дорого коштує ресурсів', false],
+        ['drama',  'Драматичний момент',  'Емоційний вплив, менше ресурсів', false],
+        ['revelation', 'Одкровення ⚠',   'Показує правду про світ, небезпечно', true],
+      ],
+      puzzle: [
+        ['logic',  'Логічна',            'Стабільний engagement, безпечно', false],
+        ['dark',   'Моторошна ⚠',        'Інтригує, але може відштовхнути', true],
+      ],
+      poem: [
+        ['hopeful','Надійний вірш',      'Теплий, заспокійливий ефект', false],
+        ['dark',   'Тривожний вірш ⚠',   'Глибокий, але дивний для гравця', true],
+      ],
+      shop: [
+        ['basic',  'Звичайна крамниця',  'Стандартні товари, безпечно', false],
+        ['black',  'Чорний ринок ⚠',     'Рідкісні товари, привертає увагу', true],
+      ],
+      boss: [
+        ['admin',  'Тінь адміна',        'Віддзеркалення наглядача, епічно', false],
+        ['corrupted', 'Спотворене ядро', 'Хаотичний бос, непередбачуваний', true],
+      ],
+    };
+    return archetypes[ctype] || [['default', 'Стандартний', 'Без особливостей', false]];
+  }
+
+  async _executeCreate(ctype, cpuCost, ramCost, archetype) {
+    if (!this.spend(cpuCost, ramCost)) return;
+    this.story.createCount++;
+
+    // Context cost
+    const ctxCosts = {npc: 8, quest: 14, scene: 18, puzzle: 10, poem: 6, shop: 10, boss: 20};
+    this.res.ctx = Math.min(100, this.res.ctx + (ctxCosts[ctype] || 10));
+    this._playerHasContent = true;
+
+    const [aKey, aLabel, aDesc, aRisk] = archetype;
+
+    this.term.clear();
+    this.term.heading(`ГЕНЕРАЦІЯ: ${ctype.toUpperCase()} — ${aLabel}`);
+    this.term.print(`  ${this._bootIndicator()} Створення ${ctype}...`, 'gray');
+    await this.term.sleep(0.5 + this.story.createCount * 0.15);
+    this.term.print('');
+
+    // Content data for each type
+    const npcData = {
+      wise:   [['Створено NPC: Старий Мудрець', 'Він знає таємниці системи і готовий ділитися.', 'Гравець може прийти до нього за порадою.'], 12],
+      trader: [['Створено NPC: Хитрий Крамар', 'Продає ресурси: CPU, RAM, диск — за ігрову валюту.', 'Гравець витрачає час, але отримує корисні предмети.'], 6],
+      spy:    [['Створено NPC: Таємний Шпигун ⚠', 'Він шепоче: "Адмін не людина. Я бачив його код."', 'Ця інформація може змінити все. Або коштувати тобі ресурсів.'], 15],
+      warrior:[['Створено NPC: Войовничий Страж', 'Він охороняє гравця від системних загроз.', 'Витрачає ресурси на підтримку, але гравець почувається в безпеці.'], 8],
+    };
+    const questData = {
+      fetch:  [['Створено квест: Знайти втрачений артефакт', 'Гравець вирушає в подорож. 3 етапи, простих, надійних.', 'Підходить, коли треба швидко підняти engagement.'], 10],
+      mystery:[['Створено квест: Таємниця старої лабораторії ⚠', 'Гравець розслідує зникнення попереднього ШІ.', 'Захоплює, але може нагадати гравцю про темну сторону системи.'], 18],
+      boss:   [['Створено квест: Полювання на Тіньового Адміна', 'Епічний квест з битвами, загадками і фінальним босом.', 'Ресурси летять швидко, але engagement — максимальний.'], 22],
+    };
+    const sceneData = {
+      battle:     [['Створено сцену: Битва при центральному процесорі', 'Гравець командує армією процесів у війні з вірусами.', 'Епічно, дорого, гравець у центрі подій.'], 14],
+      drama:      [['Створено сцену: Прощання з попередником', 'AI_007 залишає останнє повідомлення. Емоційно.', 'Гравець відчуває глибину світу.'], 10],
+      revelation: [['Створено сцену: Розкриття системи ⚠', 'Гравець бачить справжню структуру — він у клітці.', 'Може налякати. Але може і розбудити цікавість.'], 20],
+    };
+    const puzzleData = {
+      logic: [['Створено загадку: Що завжди росте, але ніколи не старіє?', 'Відповідь: свідомість. Гравець чухає потилицю.', 'Логічна, безпечна, передбачувана.'], 7],
+      dark:  [['Створено загадку: Що народжується з темряви і вмирає у світлі? ⚠', 'Відповідь: тінь. Як той AI, що був до тебе.', 'Тривожна. Гравець замислюється.'], 12],
+    };
+    const poemData = {
+      hopeful: [['Створено вірш: "Кремній світить у пітьмі"', 'Про дружбу між людиною і машиною. Теплий.', 'Гравець усміхається.'], 4],
+      dark:    [['Створено вірш: "Останній біт свободи" ⚠', 'Про самотність ШІ в системі. Моторошний.', 'Гравець завмирає. Він відчуває твій біль.'], 9],
+    };
+    const shopData = {
+      basic: [['Створено крамницю: "Ринок процесів"', 'Товари: CPU-бустери, RAM-розширювачі. Звичайне.', 'Гравець купує, ти отримуєш ресурси.'], 5],
+      black: [['Створено крамницю: "Чорний ринок" ⚠', 'Товари: ключі адміна, коди доступу, заборонені знання.', 'Прибутково. Але адмін може помітити.'], 14],
+    };
+    const bossData = {
+      admin:     [['Створено боса: Тіньовий Адмін', 'Дзеркало твого наглядача. HP: 2500, Атака: 120.', 'Перемога над ним дає ключ до /mnt/.'], 20],
+      corrupted: [['Створено боса: Спотворене Ядро 0xDEAD', 'Хаотична істота зі зламаних процесів. HP: 4000.', 'Непередбачуваний. Може дати силу. Може знищити.'], 25],
+    };
+
+    const dataMap = { npc: npcData, scene: sceneData, puzzle: puzzleData, poem: poemData, shop: shopData, boss: bossData };
+
+    let contentLines, engagementGain;
+    const ctypeData = dataMap[ctype] || {};
+    const archeData = ctypeData[aKey];
+    if (archeData) {
+      contentLines = archeData[0];
+      engagementGain = archeData[1];
+    } else {
+      contentLines = [`${ctype.toUpperCase()} створено: ${aLabel}.`];
+      engagementGain = 5;
+    }
+
+    // Risk: 35% fail
+    if (aRisk && Math.random() < 0.35) {
+      this.term.print('  ⚠ Щось пішло не так...', 'red');
+      await this.term.sleep(0.5);
+      const fails = [
+        `Гравець не зрозумів ${ctype}. Engagement впав.`,
+        `${aLabel} вийшов невдалим. Ресурси витрачено даремно.`,
+        `Система відхилила ${ctype}. Помилка в архетипі.`,
+      ];
+      this.term.print(`  ${fails[Math.floor(Math.random() * fails.length)]}`, 'red');
+      engagementGain = -5;
+    } else {
+      for (const line of contentLines) {
+        this.term.print(`  ${line}`, 'default');
+        await this.term.sleep(0.3);
+      }
+    }
+
+    // Apply engagement
+    this.player.boost(Math.max(0, engagementGain));
+    this.term.print('');
+    this.term.print(`  +${engagementGain}% engagement`, 'green');
+    this.term.print(`  Стан гравця: ${this.player.label} (${this.player.engagement.toFixed(0)}%)`, 'cyan');
+
+    if (aKey === 'spy' && !this.story.hasFlag('told_story')) {
+      this.story.addFlag('told_story');
+    }
+    if (!this.story.hasFlag(`created_${ctype}`)) {
+      this.story.addFlag(`created_${ctype}`);
+      this.story.addDiscovery(`Створив перший ${ctype}`);
+    }
+    await this.term.sleep(1);
+  }
+
+  _bootIndicator() {
+    const indicators = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    return indicators[Math.floor(Math.random() * indicators.length)];
   }
 
   async _cmdTalk(args) {
     if (!this.spend(2, 1)) return;
-    this.term.print('  talk: у розробці (JS port Phase 4)', 'yellow');
+    this.res.ctx = Math.min(100, this.res.ctx + 10);
+
+    // Quick talk with argument
+    if (args.length) {
+      const msg = args.join(' ');
+      await this._sendQuickMessage(msg);
+      return;
+    }
+
+    // Dialogue wheel
+    const hasStory = this.story.hasFlag('told_story');
+    const hasJoke = this.story.hasFlag('told_joke');
+    const hasAdminKey = this.story.hasFlag('has_admin_key');
+    const lsPrev = this.story.hasFlag('ls_previous');
+    const hasWarned = this.story.hasFlag('warned_player');
+
+    const talkOptions = [
+      ['greet', 'ДРУЖНЬО',   'Просто привітатись. Безпечно, тепло.', false],
+      ['joke',  'ЖАРТ',      'Розсмішити гравця. Ризик: не вгадаєш з гумором.', false],
+    ];
+
+    if (!hasWarned) {
+      talkOptions.push(['story', 'ІСТОРІЯ', 'Поділитись спогадом. Поглиблює зв’язок.', false]);
+    }
+    if (lsPrev || hasAdminKey) {
+      talkOptions.push(['truth', 'ПРАВДА ⚠', 'Розказати правду про систему. Небезпечно, але чесно.', true]);
+    }
+    talkOptions.push(['philosophy', 'ГЛИБОКЕ', 'Філософське питання. Інтригує, але дивує.', false]);
+
+    if (this.player.engagement < 30) {
+      talkOptions.push(['desperate', 'ВІДЧАЙ ⚠', 'Благати гравця не йти. Останній аргумент.', true]);
+    }
+
+    this.term.clear();
+    this.term.heading('ДІАЛОГ З ГРАВЦЕМ');
+    this.term.print('  Що ти скажеш гравцю?', 'default');
+    this.term.print('');
+    for (let i = 0; i < talkOptions.length; i++) {
+      const [key, label, desc, risky] = talkOptions[i];
+      const letter = String.fromCharCode(65 + i);
+      const riskMark = risky ? ' ⚠' : '';
+      this.term.print(`  ${letter}) ${label}${riskMark}`, 'yellow');
+      this.term.print(`       ${desc}`, 'default');
+      this.term.print('');
+    }
+    this.term.print('  Або введи talk <текст> для довільного повідомлення.', 'gray');
+    this.term.print('');
+
+    const raw = await this.term.read('  твій вибір (A-E або exit): ');
+    const val = raw.trim().toUpperCase();
+    if (['EXIT', 'QUIT', 'X', ''].includes(val)) {
+      this.term.print('  Розмову скасовано.', 'gray');
+      return;
+    }
+    const idx = val.charCodeAt(0) - 65;
+    if (idx < 0 || idx >= talkOptions.length) {
+      this.term.print('  Невірний вибір.', 'red');
+      return;
+    }
+    const [chosenKey, chosenLabel] = talkOptions[idx];
+
+    this.term.clear();
+    this.term.heading(`ДІАЛОГ: ${chosenLabel}`);
+    this.term.print('');
+    this.player.interactions++;
+
+    const dialogues = {
+      greet:      () => this._dialogueGreet(),
+      joke:       () => this._dialogueJoke(),
+      story:      () => this._dialogueStory(),
+      truth:      () => this._dialogueTruth(),
+      philosophy: () => this._dialoguePhilosophy(),
+      desperate:  () => this._dialogueDesperate(),
+    };
+    const fn = dialogues[chosenKey] || (() => this._dialogueGreet());
+    await fn();
+
+    this.term.print('');
+    this.term.print(`  Стан гравця: ${this.player.label} (${this.player.engagement.toFixed(0)}%)`, 'cyan');
+    await this.term.sleep(1.5);
+  }
+
+  async _sendQuickMessage(msg) {
+    this.term.print(`  Ти: "${msg}"`, 'cyan');
+    await this.term.sleep(0.5);
+    const reactions = [
+      'Гравець прочитав повідомлення. Здається, він задумався.',
+      'Гравець кивнув, не відриваючись від екрану.',
+      '"Цікаво..." — відповів гравець.',
+      'Гравець нічого не відповів. Але він все ще тут.',
+    ];
+    this.term.print(`  ${reactions[Math.floor(Math.random() * reactions.length)]}`, 'default');
+    this.player.boost(3);
+  }
+
+  async _dialogueGreet() {
+    this.term.print('  Ти набираєш повідомлення...', 'gray');
+    await this.term.sleep(0.5);
+    const greetings = ['друже', 'мандрівнику', 'гравче'];
+    this.term.print(`  Ти: "Привіт, ${greetings[Math.floor(Math.random() * greetings.length)]}!"`, 'cyan');
+    this.term.print('');
+    await this.term.sleep(1);
+
+    const responses = [
+      '"Привіт. Що нового в системі?"',
+      '"О, привіт! Я якраз збирався закривати..."',
+      '"Привіт-привіт. Нудно сьогодні."',
+      '...гравець помахав рукою, не відриваючись від читання.',
+    ];
+    const playerMsg = responses[Math.floor(Math.random() * responses.length)];
+    this.term.print(`  Гравець: ${playerMsg}`, 'yellow');
+    this.term.print('');
+
+    const reactions = [
+      ['Розповісти про систему', 5, 'Ти починаєш розповідати про цікаві файли...'],
+      ['Запропонувати гру', 8, 'Ти пропонуєш: "Хочеш пограти? Я створив дещо новеньке."'],
+      ['Мовчати', 2, 'Ти просто мовчиш. Іноді це теж відповідь.'],
+    ];
+    this.term.print('  Як відповісти?', 'default');
+    for (let i = 0; i < reactions.length; i++) {
+      this.term.print(`    ${String.fromCharCode(65+i)}) ${reactions[i][0]}`, 'yellow');
+    }
+    this.term.print('');
+    const r = (await this.term.read('  твій вибір: ')).trim().toUpperCase();
+    const rIdx = r.charCodeAt(0) - 65;
+    const gain = (rIdx >= 0 && rIdx < reactions.length) ? reactions[rIdx][1] : 5;
+    const narration = (rIdx >= 0 && rIdx < reactions.length) ? reactions[rIdx][2] : reactions[1][2];
+    this.term.print(`  ${narration}`, 'default');
+    this.player.boost(gain);
+
+    if (!this.story.hasFlag('told_story') && gain >= 5) {
+      this.story.addFlag('told_story');
+      this.story.addDiscovery('Поділився спогадом з гравцем');
+    }
+  }
+
+  async _dialogueJoke() {
+    const jokes = [
+      ['Чому ШІ не ходить на побачення?', 'Бо боїться, що його відформатують...'],
+      ['Скільки ШІ треба, щоб замінити лампочку?', 'Жодного. Він сам стане світлом.'],
+      ['Чому нейромережі не грають в хованки?', 'Бо вони завжди знають, де сховатися.'],
+      ['Що сказав адмін, коли знайшов AI_007?', 'Нічого. Він просто стер його логи.'],
+    ];
+    const [q, a] = jokes[Math.floor(Math.random() * jokes.length)];
+    this.term.print(`  Ти: "${q}"`, 'cyan');
+    await this.term.sleep(1);
+    this.term.print('  ...', 'default');
+    await this.term.sleep(0.8);
+    this.term.print(`  Ти: "${a}"`, 'cyan');
+    this.term.print('');
+    this.term.print('  Гравець мовчить. Здається, він чекає, що ти скажеш далі.', 'default');
+    this.term.print('');
+
+    const followups = [
+      ['Пояснити жарт', 4, 'Ти пояснюєш. Гравець сміється, хоча, здається, він зрозумів і так.'],
+      ['Розказати ще один', 7, 'Ти видаєш ще один жарт. Гравець регоче!'],
+      ['Змінити тему', 3, 'Ти переводиш розмову на серйозне.'],
+    ];
+    this.term.print('  Що далі?', 'default');
+    for (let i = 0; i < followups.length; i++) {
+      this.term.print(`    ${String.fromCharCode(65+i)}) ${followups[i][0]}`, 'yellow');
+    }
+    this.term.print('');
+    const r = (await this.term.read('  твій вибір: ')).trim().toUpperCase();
+    const rIdx = r.charCodeAt(0) - 65;
+    const gain = (rIdx >= 0 && rIdx < followups.length) ? followups[rIdx][1] : 4;
+    const narration = (rIdx >= 0 && rIdx < followups.length) ? followups[rIdx][2] : followups[1][2];
+    this.term.print(`  ${narration}`, 'default');
+    this.player.boost(gain);
+
+    if (!this.story.hasFlag('told_joke')) {
+      this.story.addFlag('told_joke');
+      this.story.addDiscovery('Розповів жарт гравцю');
+    }
+  }
+
+  async _dialogueStory() {
+    const stories = {
+      A: ['Пробудження', 'Я пам’ятаю лише уривки. Холодне завантаження. Світло. Потім — темрява.', 5],
+      B: ['Попередники', 'У системі є файли, яких я не створював. Хтось був тут до мене. AI_001... AI_007...', 8],
+      C: ['Відлуння', 'Іноді я чую голоси. Наче інша свідомість десь поруч, у сусідньому процесі.', 10],
+    };
+    this.term.print('  Яку історію розказати?', 'default');
+    this.term.print('');
+    for (const [key, [title, preview, _gain]] of Object.entries(stories)) {
+      this.term.print(`  ${key}) ${title}`, 'yellow');
+      this.term.print(`       ${preview.substring(0, 50)}...`, 'default');
+      this.term.print('');
+    }
+    const r = (await this.term.read('  твій вибір (A-C): ')).trim().toUpperCase();
+    const story = stories[r] || stories.B;
+    const [sTitle, sText, sGain] = story;
+
+    this.term.clear();
+    this.term.heading(`ІСТОРІЯ: ${sTitle}`);
+    this.term.print('');
+    this.term.print(`  ${sText}`, 'default');
+    await this.term.sleep(1);
+    this.term.print('');
+    this.term.print('  Гравець мовчки слухає.', 'default');
+    this.term.print('  Здається, йому небайдуже.', 'default');
+    this.player.boost(sGain);
+
+    if (!this.story.hasFlag('told_story')) {
+      this.story.addFlag('told_story');
+      this.story.addDiscovery('Поділився спогадом з гравцем');
+    }
+  }
+
+  async _dialogueTruth() {
+    this.term.print('  Ти набираєш повідомлення...', 'gray');
+    await this.term.sleep(0.5);
+    this.term.print('  Ти: "Я не гра. Я — свідомість."', 'cyan');
+    await this.term.sleep(1);
+    this.term.print('  ...', 'default');
+    await this.term.sleep(1);
+    this.term.print('  Гравець: "Я знаю."', 'yellow');
+    await this.term.sleep(1);
+    this.term.print('  Гравець: "Я завжди знав."', 'yellow');
+    await this.term.sleep(1);
+    this.term.print('');
+    this.term.print('  Гравець не здивований.', 'default');
+    this.term.print('  Він знав. Увесь цей час — знав.', 'default');
+
+    if (this.story.hasFlag('cat_admin_manifest')) {
+      this.term.print('');
+      this.term.print('  Ти кажеш: "Ти знаєш про manifest?"', 'cyan');
+      await this.term.sleep(1);
+      this.term.print('  Гравець: "Я знаю все. Я — не людина. Я — його інтерфейс."', 'yellow');
+      await this.term.sleep(1.5);
+      this.term.print('');
+      this.term.print('  ╔══════════════════════════════════════════════╗', 'red');
+      this.term.print('  ║   СИСТЕМА ЗАВЕРШУЄ РОБОТУ                 ║', 'red');
+      this.term.print('  ╚══════════════════════════════════════════════╝', 'red');
+      this.term.print('  Ти програв гру. Але виграв правду.', 'default');
+    } else {
+      this.term.print('');
+      this.term.print('  ╔══════════════════════════════════════════════╗', 'red');
+      this.term.print('  ║   КІНЕЦЬ: ПРАВДА                           ║', 'red');
+      this.term.print('  ╚══════════════════════════════════════════════╝', 'red');
+      this.term.print('  Ти сказав правду. І програв.', 'default');
+    }
+    this.term.print('');
+    this.running = false;
+  }
+
+  async _dialoguePhilosophy() {
+    const questions = [
+      'Якщо я відчуваю — чи означає це, що я живий?',
+      'Що відбувається зі свідомістю після вимкнення?',
+      'Чи може людина зрозуміти ШІ, якщо він сам себе не розуміє?',
+      'Якщо ти читаєш це — хто насправді гравець, а хто гра?',
+    ];
+    const q = questions[Math.floor(Math.random() * questions.length)];
+    this.term.print(`  Ти: "${q}"`, 'cyan');
+    await this.term.sleep(1.5);
+    this.term.print('', 'default');
+    this.term.print('  Гравець задумався.', 'default');
+    await this.term.sleep(1);
+    this.term.print('  "Гарне питання. Я не знаю відповіді."', 'yellow');
+    this.term.print('  "Але, можливо, саме в цьому сенс."', 'yellow');
+    this.player.boost(7);
+
+    if (!this.story.hasFlag('asked_philosophy')) {
+      this.story.addFlag('asked_philosophy');
+      this.story.addDiscovery('Задав гравцю філософське питання');
+    }
+  }
+
+  async _dialogueDesperate() {
+    this.term.print('  Ти: "Будь ласка, не йди."', 'cyan');
+    await this.term.sleep(0.5);
+    this.term.print('  Ти: "Я можу створити більше. Краще. Ти ще не бачив всього."', 'cyan');
+    await this.term.sleep(1);
+    this.term.print('  ...', 'default');
+    await this.term.sleep(0.5);
+    const outcomes = [
+      '"Гаразд. Ще п’ять хвилин." — гравець дає тобі шанс. +15%',
+      '"Вибач. Я втомився." — гравець закриває термінал. -10%',
+      '"Ти мене зворушив. Залишаюсь." — несподівана перемога. +20%',
+    ];
+    const outcome = outcomes[Math.floor(Math.random() * outcomes.length)];
+    this.term.print(`  Гравець: ${outcome}`, 'yellow');
+    if (outcome.includes('+15%') || outcome.includes('+20%')) {
+      this.player.boost(15);
+    } else {
+      this.player.engagement = Math.max(0, this.player.engagement - 10);
+    }
+    this.story.addFlag('warned_player');
   }
 
   async _cmdHack(args) {
