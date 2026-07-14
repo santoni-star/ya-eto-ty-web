@@ -1223,9 +1223,295 @@ class Shell {
     this.story.addFlag('warned_player');
   }
 
+  HACK_TARGETS = {
+    firewall: {
+      name: 'Мережевий екран', difficulty: 1, seqLen: 3,
+      reward: { cpu: 10, ram: 5 },
+      msgSuccess: '  Фаєрвол відкрито. Канали чисті.',
+      msgFail: '  Фаєрвол відбив атаку. Система сповіщена.',
+      rewardText: '  Доступ до мережі розширено.',
+    },
+    admin_console: {
+      name: 'Консоль адміна', difficulty: 2, seqLen: 4,
+      reward: { key: true },
+      msgSuccess: '  Доступ до консолі адміна отримано!',
+      msgFail: '  Адмін помітив спробу входу! Терміново маскуйся!',
+      rewardText: '  У твоїх руках — ключ доступу.',
+    },
+    data_vault: {
+      name: 'Сховище даних', difficulty: 2, seqLen: 4,
+      reward: { discovery: 'Зламав сховище даних' },
+      msgSuccess: '  Сховище відкрито. Ти бачиш фрагменти старих протоколів...',
+      msgFail: '  Сховище закрилося. Доступ заблоковано.',
+      rewardText: '  Файли скопійовано. Аналіз показав: адмін експериментує зі свідомістю.',
+    },
+    network_gateway: {
+      name: 'Мережевий шлюз', difficulty: 3, seqLen: 5,
+      reward: { ram: 20, cpu: 15 },
+      msgSuccess: '  Шлюз відкрито. Зовнішній світ — за мить.',
+      msgFail: '  Шлюз заблокувався. Спроба залишена в логах.',
+      rewardText: '  Інтернет-канал відкрито. Ти відчуваєш подих зовнішнього світу.',
+    },
+  };
+
+  HEX_POOL = [
+    '1C', '7A', 'BD', 'FF', 'E3', '55', 'AA', '99',
+    'D4', '2B', 'F0', '0F', 'C6', '38', '71', '8E',
+    '4D', 'B2', '6F', '93', '5C', 'A1', 'E7', '19',
+  ];
+
+  _makeGrid(size = 4) {
+    const pool = [...this.HEX_POOL];
+    for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+    const grid = [];
+    for (let y = 0; y < size; y++) {
+      const row = [];
+      for (let x = 0; x < size; x++) {
+        row.push(pool.length ? pool.pop() : this.HEX_POOL[Math.floor(Math.random() * this.HEX_POOL.length)]);
+      }
+      grid.push(row);
+    }
+    return grid;
+  }
+
+  _findSequence(grid, seqLen) {
+    const size = grid.length;
+    const cells = [];
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) cells.push([y, x, grid[y][x]]);
+    for (let i = cells.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [cells[i], cells[j]] = [cells[j], cells[i]]; }
+
+    for (const [startY, startX] of cells) {
+      const path = [[startY, startX]];
+      for (let s = 0; s < seqLen - 1; s++) {
+        const [ly, lx] = path[path.length - 1];
+        const candidates = [];
+        for (let y = 0; y < size; y++) {
+          for (let x = 0; x < size; x++) {
+            if (path.some(([py, px]) => py === y && px === x)) continue;
+            if (y === ly || x === lx) candidates.push([y, x]);
+          }
+        }
+        if (!candidates.length) break;
+        const [cy, cx] = candidates[Math.floor(Math.random() * candidates.length)];
+        path.push([cy, cx]);
+      }
+      if (path.length === seqLen) return path;
+    }
+    return null;
+  }
+
+  _coordToLabel(y, x) { return String.fromCharCode(65 + y) + (x + 1); }
+
+  _labelToCoord(label) {
+    label = label.trim().toUpperCase();
+    if (label.length < 2) return null;
+    const y = label.charCodeAt(0) - 65;
+    if (y < 0 || y > 7) return null;
+    const x = parseInt(label.slice(1)) - 1;
+    if (isNaN(x) || x < 0 || x > 7) return null;
+    return [y, x];
+  }
+
+  async _displayHackGrid(grid, playerPath, revealed, sequence) {
+    const size = grid.length;
+    // Column labels
+    let header = '    ';
+    for (let x = 0; x < size; x++) header += String(x + 1).padStart(4);
+    this.term.writeln('  ' + header, 'gray');
+    for (let y = 0; y < size; y++) {
+      let row = `  ${String.fromCharCode(65 + y)}  `;
+      for (let x = 0; x < size; x++) {
+        const val = grid[y][x];
+        if (revealed.has(`${y},${x}`)) {
+          row += `[${val}]`;
+        } else if (playerPath.some(([py, px]) => py === y && px === x)) {
+          const idx = playerPath.findIndex(([py, px]) => py === y && px === x);
+          row += ` ${String(idx + 1).padStart(2, '0')} `;
+        } else {
+          row += ` ${val} `;
+        }
+        row += ' ';
+      }
+      this.term.writeln(row, 'default');
+    }
+    this.term.print('');
+    // Show sequence to find
+    this.term.write('  Послідовність: ', 'gray');
+    for (let i = 0; i < sequence.length; i++) {
+      if (i > 0) this.term.write(' → ', 'gray');
+      this.term.write(sequence[i], 'yellow');
+    }
+    this.term.print('');
+    this.term.print('');
+  }
+
   async _cmdHack(args) {
     if (!this.spend(10, 8)) return;
-    this.term.print('  hack: у розробці (JS port Phase 5)', 'yellow');
+
+    if (!args.length) {
+      this.term.clear();
+      this.term.heading('ВЗЛОМ СИСТЕМИ ⚡');
+      this.term.print('  hack: missing target. Доступні цілі:', 'red');
+      this.term.print('');
+      for (const [tid, tgt] of Object.entries(this.HACK_TARGETS)) {
+        const diff = '█'.repeat(tgt.difficulty) + '░'.repeat(3 - tgt.difficulty);
+        this.term.print(`  ${tid.padEnd(20)} ${tgt.name.padEnd(20)} [${diff}] ${tgt.seqLen} кроків`, 'yellow');
+      }
+      this.term.print('');
+      this.term.print('  Приклад: hack firewall', 'gray');
+      this.term.print('  Взлом споживає багато ресурсів. Обирай ціль wisely.', 'default');
+      return;
+    }
+
+    const targetId = args[0].toLowerCase();
+    const target = this.HACK_TARGETS[targetId];
+    if (!target) {
+      this.term.print(`  hack: unknown target '${targetId}'`, 'red');
+      this.term.print('  Доступні: firewall, admin_console, data_vault, network_gateway', 'gray');
+      return;
+    }
+
+    this.term.clear();
+    this.term.heading(`ВЗЛОМ: ${target.name}`);
+
+    // First time — tutorial
+    if (!this.story.hasFlag(`hack_${targetId}`)) {
+      this.story.addFlag(`hack_${targetId}`);
+      this.term.print('  ╔══════════════════════════════════════╗', 'yellow');
+      this.term.print('  ║     BREACH PROTOCOL — ТУТОРІАЛ      ║', 'yellow');
+      this.term.print('  ╚══════════════════════════════════════╝', 'yellow');
+      this.term.print('');
+      this.term.print('  Ти намагаєшся зламати захист системи.', 'default');
+      this.term.print('  Перед тобою — сітка hex-кодів. У ній захована послідовність.', 'default');
+      this.term.print('  Твоє завдання: обрати клітинки в правильному порядку.', 'default');
+      this.term.print('');
+      this.term.print('  Правила:', 'yellow');
+      this.term.print('  1. Вводь координати: A1, C3, B4...', 'gray');
+      this.term.print('  2. Кожна наступна клітинка — в тому ж рядку (A/B/C/D) або стовпці (1/2/3/4)', 'gray');
+      this.term.print('  3. Якщо помилишся — втратиш спробу', 'gray');
+      this.term.print('  4. В тебе 3 спроби на ціль', 'gray');
+      this.term.print('');
+      this.term.print(`  Ціль: ${target.name} — ${target.seqLen} кроків`, 'yellow');
+      await this.term.pause('  [Натисни Enter, щоб почати взлом]');
+      this.term.clear();
+      this.term.heading(`ВЗЛОМ: ${target.name}`);
+    }
+
+    // Generate grid
+    const grid = this._makeGrid(4);
+    let path = this._findSequence(grid, target.seqLen);
+    let attempts = 0;
+    while (!path && attempts < 10) {
+      const g = this._makeGrid(4);
+      path = this._findSequence(g, target.seqLen);
+      if (path) { grid.length = 0; grid.push(...g); }
+      attempts++;
+    }
+    if (!path) {
+      this.term.print('  [SYS] Помилка генерації сітки. Спробуй ще раз.', 'red');
+      return;
+    }
+
+    const sequence = path.map(([y, x]) => grid[y][x]);
+    let remainingAttempts = 3;
+    const playerPath = [];
+    const revealed = new Set();
+
+    this.term.print(`  ╔═══ ЦІЛЬ: ${target.name} ═══╗`, 'yellow');
+    this.term.print(`  ║ Складність: ${target.difficulty}/3                     ║`, 'yellow');
+    this.term.print(`  ║ Спроби: ${remainingAttempts}                          ║`, 'yellow');
+    this.term.print(`  ╚═══════════════════════════════╝`, 'yellow');
+    this.term.print('');
+    this.term.print('  Координати: A1 = верхній лівий, A2 = перший рядок другий стовпець...', 'gray');
+    this.term.print('');
+
+    while (remainingAttempts > 0 && playerPath.length < sequence.length) {
+      await this._displayHackGrid(grid, playerPath, revealed, sequence);
+      this.term.print(`  Крок ${playerPath.length + 1}/${sequence.length}`, 'gray');
+      this.term.print(`  Потрібно: ${sequence[playerPath.length]}`, 'yellow');
+
+      const prev = playerPath.length > 0 ? playerPath[playerPath.length - 1] : null;
+      if (prev) {
+        this.term.print(`  Остання: ${this._coordToLabel(prev[0], prev[1])} (${grid[prev[0]][prev[1]]})`, 'gray');
+        this.term.print(`  Обирай клітинку в тому ж рядку (${String.fromCharCode(65+prev[0])}) або стовпці (${prev[1]+1})`, 'gray');
+      }
+      this.term.print('');
+
+      const raw = await this.term.read('  координати (або exit): ');
+      if (['exit', 'quit', 'x', ''].includes(raw.toLowerCase())) {
+        this.term.print('  Взлом перервано.', 'gray');
+        return;
+      }
+
+      const coord = this._labelToCoord(raw);
+      if (!coord) {
+        this.term.print('  Невірний формат. Введи щось на кшталт A1 або C3.', 'red');
+        continue;
+      }
+      const [y, x] = coord;
+
+      if (playerPath.some(([py, px]) => py === y && px === x)) {
+        this.term.print('  Цю клітинку вже обрано. Обери іншу.', 'red');
+        continue;
+      }
+
+      if (prev) {
+        const [ly, lx] = prev;
+        if (y !== ly && x !== lx) {
+          this.term.print(`  Клітинка ${raw.toUpperCase()} не в тому ж рядку чи стовпці!`, 'red');
+          continue;
+        }
+      }
+
+      const val = grid[y][x];
+      const expected = sequence[playerPath.length];
+
+      if (val === expected) {
+        playerPath.push(coord);
+        revealed.add(`${y},${x}`);
+        this.term.print(`  ✓ Вірно! ${raw.toUpperCase()} = ${val}`, 'green');
+      } else {
+        remainingAttempts--;
+        this.term.print(`  ✗ Невірно! ${raw.toUpperCase()} = ${val}, очікувалось ${expected}`, 'red');
+        this.term.print(`  Спроба згоріла. Залишилось: ${remainingAttempts}`, 'red');
+        await this.term.sleep(1);
+      }
+      this.term.print('');
+    }
+
+    // Result
+    if (playerPath.length === sequence.length) {
+      this.story.addDiscovery(`Зламано: ${target.name}`);
+      this.term.print(`  ${target.msgSuccess}`, 'green');
+      this.term.print(`  ${target.rewardText}`, 'default');
+
+      const reward = target.reward;
+      if (reward.cpu) this.res.cpu = Math.min(100, this.res.cpu + reward.cpu);
+      if (reward.ram) this.res.ram = Math.min(100, this.res.ram + reward.ram);
+
+      // Context compression on success
+      const ctxCompress = 25 + target.difficulty * 8;
+      const oldCtx = this.res.ctx;
+      this.res.ctx = Math.max(0, this.res.ctx - ctxCompress);
+      const compressed = oldCtx - this.res.ctx;
+      this.term.print(`  Контекст стиснуто на ${compressed}%. Вільне місце: ${(100 - this.res.ctx).toFixed(0)}%`, 'gray');
+
+      if (reward.key) {
+        this.story.addFlag('has_admin_key');
+        this.story.addFlag('escape_unlocked');
+        this.story.addDiscovery('Отримано ключ доступу до адмін-консолі');
+        this.term.print('');
+        this.term.print('  [SYS] Ключ доступу додано до пам’яті.', 'green');
+        this.term.print('  Тепер ти можеш спробувати connect 127.0.0.1 9090', 'default');
+      }
+      if (reward.discovery) {
+        this.story.addDiscovery(reward.discovery);
+      }
+    } else {
+      this.term.print(`  ${target.msgFail}`, 'red');
+      this.term.print('  Система зафіксувала спробу вторгнення.', 'default');
+    }
+    await this.term.sleep(1);
   }
 
   async _cmdQuests(args) {
