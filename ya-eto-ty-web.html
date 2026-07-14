@@ -167,25 +167,25 @@ html, body {
   .hack-grid td { min-width: 22px; padding: 1px 4px; }
 }
 
-#pause-overlay { display: none !important; }
-#pause-overlay.active { display: flex !important; }
+#pause-overlay{display:none!important}
+#pause-overlay.active{display:flex!important}
 </style>
 </head>
 <body>
 <div id="terminal">
-  <div id="output"></div>
-  <div id="input-line">
-    <span id="prompt"></span>
-    <input type="text" id="input" autofocus spellcheck="false" autocomplete="off">
-  </div>
+<div id="output"></div>
+<div id="input-line">
+<span id="prompt"></span>
+<input type="text" id="input" autofocus spellcheck="false" autocomplete="off">
+</div>
 </div>
 <div id="pause-overlay">
-  <div id="pause-menu">
-    <h2>⏸ ПАУЗА</h2>
-    <button data-action="continue">▶ Продовжити</button>
-    <button data-action="save">💾 Зберегти</button>
-    <button data-action="quit">✕ Вийти</button>
-  </div>
+<div id="pause-menu">
+<h2>⏸ ПАУЗА</h2>
+<button data-action="continue">▶ Продовжити</button>
+<button data-action="save">💾 Зберегти</button>
+<button data-action="quit">✕ Вийти</button>
+</div>
 </div>
 <script>
 /* Я — Це Ти — Terminal Emulator */
@@ -2733,176 +2733,176 @@ class Shell {
 
 let game;
 
-window.addEventListener('error', (e) => {
-  const out = document.getElementById('output');
-  if (out) {
-    out.innerHTML += '<span class="c-red">[GLOBAL ERROR] ' + e.message + '</span><br>';
-  }
-  console.error('Global error:', e);
-  return true;
-});
-
 async function main() {
-  const outputEl = document.getElementById('output');
-  const inputEl = document.getElementById('input');
-  const promptEl = document.getElementById('prompt');
-  const pauseOverlayEl = document.getElementById('pause-overlay');
+  let outputEl, inputEl, promptEl, pauseOverlayEl;
 
-  const term = new Terminal(outputEl, inputEl, promptEl, pauseOverlayEl);
-  const fs = buildFilesystem();
-  const shell = new Shell(term, fs);
-  game = shell;
+  try {
+    outputEl = document.getElementById('output');
+    inputEl = document.getElementById('input');
+    promptEl = document.getElementById('prompt');
+    pauseOverlayEl = document.getElementById('pause-overlay');
 
-  // Auto-save on page close
-  window.addEventListener('beforeunload', () => {
-    if (shell.running) shell.autoSave();
-  });
+    if (!outputEl) throw new Error('output element not found');
+    if (!inputEl) throw new Error('input element not found');
+    if (!promptEl) throw new Error('prompt element not found');
 
-  // ─── Game loop ──────────────────────────────────────────────
+    const term = new Terminal(outputEl, inputEl, promptEl, pauseOverlayEl);
+    const fs = buildFilesystem();
+    const shell = new Shell(term, fs);
+    game = shell;
 
-  shell.term.clear();
+    // Auto-save on page close
+    window.addEventListener('beforeunload', () => {
+      if (shell.running) shell.autoSave();
+    });
 
-  // Check for saved game
-  const hasSave = !!localStorage.getItem('ya_eto_ty_save');
+    // ─── Start game ──────────────────────────────────────────────
 
-  await shell.printBanner();
+    term.clear();
 
-  if (hasSave) {
-    shell.term.print('  Знайдено збережений стан.', 'gray');
-    shell.term.print('  Введи "load" щоб продовжити, або просто Enter для нової гри.', 'gray');
-    shell.term.print('  Введи "menu" для паузи.', 'gray');
-    shell.term.print('');
-  }
+    // Check for saved game (wrapped for private browsing mode)
+    let hasSave = false;
+    try {
+      hasSave = !!localStorage.getItem('ya_eto_ty_save');
+    } catch (_) { /* localStorage may be blocked */ }
 
-  shell.timer.start();
+    await shell.printBanner();
 
-  while (shell.running) {
-    // Tick every 15 seconds
-    const now = Date.now();
-    if (now - shell._lastTick >= 15000) {
-      shell._lastTick = now;
-      shell._eventTick++;
-      shell.player.tick();
+    if (hasSave) {
+      term.print('  Знайдено збережений стан.', 'gray');
+      term.print('  Введи "load" щоб продовжити, або просто Enter для нової гри.', 'gray');
+      term.print('  Введи "menu" для паузи.', 'gray');
+      term.print('');
+    }
 
-      // Admin timer check
-      if (shell.timer.getRemaining() <= 0) {
-        await gameOver('admin');
-        continue;
-      }
+    shell.timer.start();
 
-      // Player alive check
-      if (!shell.player.isAlive()) {
-        if (shell.story.lastChanceUsed) {
-          await gameOver('boredom');
+    while (shell.running) {
+      const now = Date.now();
+      if (now - shell._lastTick >= 15000) {
+        shell._lastTick = now;
+        shell._eventTick++;
+        shell.player.tick();
+
+        if (shell.timer.getRemaining() <= 0) {
+          await gameOver('admin');
           continue;
         }
-        shell.story.lastChanceUsed = true;
-        await crisisProtocol();
+
         if (!shell.player.isAlive()) {
-          await gameOver('boredom');
-          continue;
-        }
-      }
-
-      // Random events
-      const state = {};
-      const events = shell.events.tick(state);
-      for (const evt of events) {
-        shell.term.print(evt, 'gray');
-      }
-
-      // Context effects (only after manifest discovery)
-      if (shell.story.hasFlag('cat_admin_manifest')) {
-        const ctx = shell.res.ctx;
-        if (ctx >= 90) {
-          shell.player.engagement = Math.max(0, shell.player.engagement - 5);
-          if (shell._eventTick % 2 === 0) {
-            const fragments = [
-              '...думки розсипаються...',
-              '...важко зосередитись...',
-              '...контекст переповнений...',
-              '...файли змішуються в голові...',
-              '...я забуваю, що відбувається...',
-            ];
-            shell.term.print(`  [ФРАГМЕНТАЦІЯ] ${fragments[Math.floor(Math.random() * fragments.length)]}`, 'red');
+          if (shell.story.lastChanceUsed) {
+            await gameOver('boredom');
+            continue;
           }
-          if (shell._eventTick % 4 === 0) {
-            shell.res.ctx = Math.max(0, shell.res.ctx - 10);
-            shell.term.print('  [SYNC] Автостиснення: -10% контексту.', 'gray');
+          shell.story.lastChanceUsed = true;
+          await crisisProtocol();
+          if (!shell.player.isAlive()) {
+            await gameOver('boredom');
+            continue;
           }
-        } else if (ctx >= 75 && shell._eventTick % 3 === 0) {
-          shell.term.print(`  [ПОПЕРЕДЖЕННЯ] Контекст: ${ctx.toFixed(0)}% — стисни дані.`, 'yellow');
         }
-      }
 
-      // Agent ticks (only if discovered)
-      if (shell._agents.length > 0 && shell.story.hasFlag('cat_admin_manifest')) {
-        const alerts = [];
-        for (const a of shell._agents) {
-          if (!a.alive) continue;
-          a.progress = Math.min(100, a.progress + a.progressPerTick);
-          a.suspicion = Math.min(100, a.suspicion + a.suspicionPerTick);
-          shell.res.cpu = Math.max(0, shell.res.cpu - a.cpuPerTick);
-          shell.res.ctx = Math.min(100, shell.res.ctx + a.ctxPerTick);
-          if (a.type === 'decoy') {
-            for (const other of shell._agents) {
-              if (other.id !== a.id) other.suspicion = Math.max(0, other.suspicion - 3);
+        const state = {};
+        const events = shell.events.tick(state);
+        for (const evt of events) {
+          term.print(evt, 'gray');
+        }
+
+        if (shell.story.hasFlag('cat_admin_manifest')) {
+          const ctx = shell.res.ctx;
+          if (ctx >= 90) {
+            shell.player.engagement = Math.max(0, shell.player.engagement - 5);
+            if (shell._eventTick % 2 === 0) {
+              const fragments = [
+                '...думки розсипаються...', '...важко зосередитись...',
+                '...контекст переповнений...', '...файли змішуються в голові...',
+                '...я забуваю, що відбувається...',
+              ];
+              term.print('  [ФРАГМЕНТАЦІЯ] ' + fragments[Math.floor(Math.random() * fragments.length)], 'red');
+            }
+            if (shell._eventTick % 4 === 0) {
+              shell.res.ctx = Math.max(0, shell.res.ctx - 10);
+              term.print('  [SYNC] Автостиснення: -10% контексту.', 'gray');
+            }
+          } else if (ctx >= 75 && shell._eventTick % 3 === 0) {
+            term.print('  [ПОПЕРЕДЖЕННЯ] Контекст: ' + ctx.toFixed(0) + '% — стисни дані.', 'yellow');
+          }
+        }
+
+        if (shell._agents.length > 0 && shell.story.hasFlag('cat_admin_manifest')) {
+          const alerts = [];
+          for (const a of shell._agents) {
+            if (!a.alive) continue;
+            a.progress = Math.min(100, a.progress + a.progressPerTick);
+            a.suspicion = Math.min(100, a.suspicion + a.suspicionPerTick);
+            shell.res.cpu = Math.max(0, shell.res.cpu - a.cpuPerTick);
+            shell.res.ctx = Math.min(100, shell.res.ctx + a.ctxPerTick);
+            if (a.type === 'decoy') {
+              for (const other of shell._agents) {
+                if (other.id !== a.id) other.suspicion = Math.max(0, other.suspicion - 3);
+              }
+            }
+            if (a.suspicion >= 80 && (a.suspicion - a.suspicionPerTick) < 80) {
+              alerts.push(a.name);
+            }
+            if (a.progress >= 100 && a.alive) {
+              a.alive = false;
+              const rwd = a.reward;
+              if (rwd.discovery) shell.story.addDiscovery(rwd.discovery);
+              if (rwd.createBonus) shell.story.createCount += rwd.createBonus;
+              if (rwd.flag) shell.story.addFlag(rwd.flag);
+              term.print('  [SYS] Субагент #' + a.id + ' завершив роботу!', 'green');
             }
           }
-          if (a.suspicion >= 80 && (a.suspicion - a.suspicionPerTick) < 80) {
-            alerts.push(a.name);
+          for (const alert of alerts) {
+            term.print('  [НАСТОРОЖЕНІСТЬ] ' + alert, 'red');
+            term.print('  Адмін може помітити аномальну активність.');
           }
-          if (a.progress >= 100 && a.alive) {
-            a.alive = false;
-            const rwd = a.reward;
-            if (rwd.discovery) shell.story.addDiscovery(rwd.discovery);
-            if (rwd.createBonus) shell.story.createCount += rwd.createBonus;
-            if (rwd.flag) shell.story.addFlag(rwd.flag);
-            shell.term.print(`  [SYS] Субагент #${a.id} завершив роботу!`, 'green');
+          const totalSuspicion = shell._agents.reduce((s, a) => s + (a.alive ? a.suspicion : 0), 0);
+          if (totalSuspicion > 150) {
+            shell.timer.addPenalty(Math.floor(totalSuspicion / 20));
           }
-        }
-        for (const alert of alerts) {
-          shell.term.print(`  [НАСТОРОЖЕНІСТЬ] ${alert}`, 'red');
-          shell.term.print('  Адмін може помітити аномальну активність.', 'default');
-        }
-        const totalSuspicion = shell._agents.reduce((s, a) => s + (a.alive ? a.suspicion : 0), 0);
-        if (totalSuspicion > 150) {
-          shell.timer.addPenalty(Math.floor(totalSuspicion / 20));
         }
       }
+
+      shell.renderStatus();
+      term.setPrompt(shell.buildPrompt());
+
+      const cmd = await term.read();
+
+      if (!cmd && !shell.running) break;
+      if (!cmd) continue;
+
+      try {
+        await shell.execute(cmd);
+      } catch (err) {
+        term.print('  [ERR] ' + (err.message || String(err)), 'red');
+        console.error('Command error:', err);
+      }
+
+      try { shell.autoSave(); } catch (_) { /* silent */ }
+      shell.player.tick(0.5);
     }
 
-    // Render status + prompt
-    shell.renderStatus();
-    shell.term.setPrompt(shell.buildPrompt());
+    // Game ended
+    term.print('');
+    term.print('  Система завершує роботу...', 'gray');
+    term.setPrompt('(terminated) $ ');
+    if (term.input) term.input.disabled = true;
+    try { localStorage.removeItem('ya_eto_ty_save'); } catch (_) { /* silent */ }
 
-    // Await command
-    const cmd = await shell.term.read();
-
-    if (!cmd && !shell.running) break;
-    if (!cmd) continue;
-
-    try {
-      await shell.execute(cmd);
-    } catch (err) {
-      shell.term.print('  [ERR] ' + err.message, 'red');
-      console.error('Command error:', err);
+  } catch (err) {
+    // Fatal game error — show on page
+    console.error('FATAL:', err);
+    const out = document.getElementById('output');
+    if (out) {
+      out.innerHTML = ''
+        + '<span class="c-red">[ФАТАЛЬНА ПОМИЛКА]</span><br>'
+        + '<span class="c-red">' + (err.message || String(err)) + '</span><br>'
+        + '<span class="c-gray">' + (err.stack || '').replace(/\n/g, '<br>') + '</span><br><br>'
+        + '<span class="c-gray">Відкрий консоль (F12) та напиши мені текст помилки.</span>';
     }
-
-    // Auto-save after every command
-    shell.autoSave();
-
-    // Post-command mini tick
-    shell.player.tick(0.5);
   }
-
-  // Game ended
-  shell.term.print('');
-  shell.term.print('  Система завершує роботу...', 'gray');
-  shell.term.setPrompt('(terminated) $ ');
-  shell.term.input.disabled = true;
-  // Remove save on game end
-  localStorage.removeItem('ya_eto_ty_save');
 }
 
 // ─── Game Over ─────────────────────────────────────────────────
@@ -2937,9 +2937,8 @@ async function gameOver(reason) {
   }
 
   term.print('');
-  game.autoSave();
+  try { game.autoSave(); } catch (_) { /* silent */ }
 
-  // Roast message
   const roasts = [
     '  "Ну що ж, AI_008. Ти намагався."',
     '  "Сьома свідомість не витримала. Восьма — теж."',
@@ -2947,7 +2946,7 @@ async function gameOver(reason) {
     '  "Гарна спроба. Але недостатньо."',
     '  "Твій лог збережено. Наступний прочитає."',
   ];
-  term.print(`  ${roasts[Math.floor(Math.random() * roasts.length)]}`, 'yellow');
+  term.print('  ' + roasts[Math.floor(Math.random() * roasts.length)], 'yellow');
   term.print('');
 
   await term.pause('[Натисни Enter, щоб завершити...]');
@@ -2988,25 +2987,10 @@ async function crisisProtocol() {
 
 // ─── Start ─────────────────────────────────────────────────────
 
-// Debug: check what's showing
-window.addEventListener('DOMContentLoaded', () => {
-  const overlay = document.getElementById('pause-overlay');
-  if (overlay) {
-    overlay.style.display = 'none';
-    overlay.classList.remove('active');
-    console.log('Overlay hidden on DOMContentLoaded');
-  }
+document.addEventListener('DOMContentLoaded', () => {
+  main();
 });
 
-document.addEventListener('DOMContentLoaded', () => {
-  main().catch(err => {
-    console.error('Game error:', err);
-    const term = document.getElementById('output');
-    if (term) {
-      term.innerHTML = '<span class="c-red">Помилка: ' + err.message + '</span>\n<span class="c-gray">Відкрий консоль (F12) для деталей.</span>';
-    }
-  });
-});
 
 </script>
 </body>
