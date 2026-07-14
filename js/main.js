@@ -2,6 +2,15 @@
 
 let game;
 
+window.addEventListener('error', (e) => {
+  const out = document.getElementById('output');
+  if (out) {
+    out.innerHTML += '<span class="c-red">[GLOBAL ERROR] ' + e.message + '</span><br>';
+  }
+  console.error('Global error:', e);
+  return true;
+});
+
 async function main() {
   const outputEl = document.getElementById('output');
   const inputEl = document.getElementById('input');
@@ -142,7 +151,12 @@ async function main() {
     if (!cmd && !shell.running) break;
     if (!cmd) continue;
 
-    await shell.execute(cmd);
+    try {
+      await shell.execute(cmd);
+    } catch (err) {
+      shell.term.print('  [ERR] ' + err.message, 'red');
+      console.error('Command error:', err);
+    }
 
     // Auto-save after every command
     shell.autoSave();
