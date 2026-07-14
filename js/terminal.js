@@ -73,6 +73,16 @@ class Terminal {
     this.print('─'.repeat(60), 'gray');
   }
 
+  // ─── Status bar helpers ──────────────────────────────────────────
+
+  bar(value, length = 16) {
+    const filled = Math.max(0, Math.min(length, Math.floor(value / 100 * length)));
+    const empty = length - filled;
+    const f = '█'.repeat(filled);
+    const e = '░'.repeat(empty);
+    return `[${f}${e}] ${value.toFixed(0)}%`;
+  }
+
   clear() {
     this.output.innerHTML = '';
     this.input.value = '';
