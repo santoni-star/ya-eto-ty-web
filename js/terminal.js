@@ -10,8 +10,12 @@ class Terminal {
     this.historyIdx = -1;
     this._readResolve = null;
 
-    // Input handling
+    // ─── Input handling: MULTIPLE fallback events ────────────
+    // Some mobile browsers / modes only fire 'input' or 'keypress' on Enter.
     this.input.addEventListener('keydown', (e) => this._onKey(e));
+    this.input.addEventListener('keypress', (e) => this._onKeyPress(e));
+    this.input.addEventListener('input', (e) => this._onInput(e));
+
     // Click anywhere to focus input
     document.addEventListener('click', () => this.input.focus());
 
@@ -28,6 +32,9 @@ class Terminal {
         });
       });
     }
+
+    // Auto-focus on touch/click anywhere
+    document.addEventListener('touchstart', () => this.input.focus());
   }
 
   // ─── Output ──────────────────────────────────────────────────────
@@ -82,8 +89,6 @@ class Terminal {
   }
 
   // ─── Input — returns a Promise<string> ────────────────────────────
-  // Caller awaits this, gets the typed command as result.
-  // Terminal echoes the command to output automatically.
 
   read() {
     return new Promise((resolve) => {
@@ -92,26 +97,32 @@ class Terminal {
     });
   }
 
+  // ─── Resolve current read with the input value ──────────────────
+
+  _submit() {
+    const val = this.input.value;
+    if (val) {
+      this.history.push(val);
+      this.writeln(`${this.prompt.textContent}${val}`, 'default');
+    } else {
+      this.writeln('', 'default');
+    }
+    this.input.value = '';
+    this.historyIdx = -1;
+
+    if (this._readResolve) {
+      const resolve = this._readResolve;
+      this._readResolve = null;
+      resolve(val);
+    }
+  }
+
+  // ─── Event Handlers ─────────────────────────────────────────────
+
   _onKey(e) {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const val = this.input.value;
-      // Nothing typed? still echo empty line maybe
-      if (val) {
-        this.history.push(val);
-        // Echo: prompt + command to output
-        this.writeln(`${this.prompt.textContent}${val}`, 'default');
-      } else {
-        this.writeln('', 'default');
-      }
-      this.input.value = '';
-      this.historyIdx = -1;
-
-      if (this._readResolve) {
-        const resolve = this._readResolve;
-        this._readResolve = null;
-        resolve(val);
-      }
+      this._submit();
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       if (this.history.length === 0) return;
@@ -130,13 +141,31 @@ class Terminal {
         this.input.value = this.history[this.historyIdx];
       }
     } else if (e.key === 'c' && (e.ctrlKey || e.metaKey)) {
-      // Ctrl+C: cancel current read, treat as empty command
       if (this._readResolve) {
         this.writeln('^C', 'gray');
         this.input.value = '';
         const resolve = this._readResolve;
         this._readResolve = null;
         resolve('');
+      }
+    }
+  }
+
+  // Fallback for mobile — keypress fires on Enter too
+  _onKeyPress(e) {
+    if (e.key === 'Enter') {
+      if (!this._readResolve) return; // already handled by keydown
+      e.preventDefault();
+      this._submit();
+    }
+  }
+
+  // Last-resort: detect newline via input event
+  _onInput(e) {
+    if (this.input.value.includes('\n')) {
+      this.input.value = this.input.value.replace(/\n/g, '');
+      if (this._readResolve) {
+        this._submit();
       }
     }
   }
